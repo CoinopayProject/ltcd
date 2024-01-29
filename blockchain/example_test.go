@@ -6,6 +6,7 @@ package blockchain_test
 
 import (
 	"fmt"
+	"github.com/ltcsuite/ltcd/services"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -45,8 +46,29 @@ func ExampleBlockChain_ProcessBlock() {
 	// ordinarily keep a reference to the median time source and add time
 	// values obtained from other peers on the network so the local time is
 	// adjusted to be in agreement with other peers.
+	config, err := Services.NewConfigHelper("appSettings.json")
+	if err != nil {
+		fmt.Println(err)
+	}
+	dbConnectionString, err := config.GetSection("MongodbConnectionString")
+	if err != nil {
+		fmt.Println(err)
+	}
+	dbUsername, err := config.GetSection("MongodbUsername")
+	if err != nil {
+		fmt.Println(err)
+	}
+	dbPassword, err := config.GetSection("MongodbPassword")
+	if err != nil {
+		fmt.Println(err)
+	}
 	chain, err := blockchain.New(&blockchain.Config{
-		DB:          db,
+		DB: db,
+		MongodbConfiguration: struct {
+			MongodbConnectionString string
+			MongodbUsername         string
+			MongodbPasswrod         string
+		}{MongodbConnectionString: dbConnectionString.(string), MongodbUsername: dbUsername.(string), MongodbPasswrod: dbPassword.(string)},
 		ChainParams: &chaincfg.MainNetParams,
 		TimeSource:  blockchain.NewMedianTime(),
 	})

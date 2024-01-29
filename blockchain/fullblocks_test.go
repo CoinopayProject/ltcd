@@ -7,6 +7,7 @@ package blockchain_test
 
 import (
 	"fmt"
+	"github.com/ltcsuite/ltcd/services"
 	"os"
 	"path/filepath"
 
@@ -108,9 +109,30 @@ func chainSetup(dbName string, params *chaincfg.Params) (*blockchain.BlockChain,
 	// the chain parameters do not affect the global instance.
 	paramsCopy := *params
 
+	config, err := Services.NewConfigHelper("appSettings.json")
+	if err != nil {
+		fmt.Println(err)
+	}
+	dbConnectionString, err := config.GetSection("MongodbConnectionString")
+	if err != nil {
+		fmt.Println(err)
+	}
+	dbUsername, err := config.GetSection("MongodbUsername")
+	if err != nil {
+		fmt.Println(err)
+	}
+	dbPassword, err := config.GetSection("MongodbPassword")
+	if err != nil {
+		fmt.Println(err)
+	}
 	// Create the main chain instance.
 	chain, err := blockchain.New(&blockchain.Config{
-		DB:          db,
+		DB: db,
+		MongodbConfiguration: struct {
+			MongodbConnectionString string
+			MongodbUsername         string
+			MongodbPasswrod         string
+		}{MongodbConnectionString: dbConnectionString.(string), MongodbUsername: dbUsername.(string), MongodbPasswrod: dbPassword.(string)},
 		ChainParams: &paramsCopy,
 		Checkpoints: nil,
 		TimeSource:  blockchain.NewMedianTime(),

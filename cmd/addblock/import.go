@@ -330,7 +330,7 @@ func newBlockImporter(db database.DB, r io.ReadSeeker) (*blockImporter, error) {
 	if len(indexes) > 0 {
 		indexManager = indexers.NewManager(db, indexes)
 	}
-	config, err := services.NewConfigHelper("appSettings.json")
+	config, err := Services.NewConfigHelper("appSettings.json")
 	if err != nil {
 		fmt.Println(err)
 	}
