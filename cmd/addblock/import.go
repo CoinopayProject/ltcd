@@ -7,6 +7,7 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/ltcsuite/ltcd/services"
 	"io"
 	"sync"
 	"time"
@@ -329,9 +330,29 @@ func newBlockImporter(db database.DB, r io.ReadSeeker) (*blockImporter, error) {
 	if len(indexes) > 0 {
 		indexManager = indexers.NewManager(db, indexes)
 	}
-
+	config, err := services.NewConfigHelper("appSettings.json")
+	if err != nil {
+		fmt.Println(err)
+	}
+	dbConnectionString, err := config.GetSection("MongodbConnectionString")
+	if err != nil {
+		fmt.Println(err)
+	}
+	dbUsername, err := config.GetSection("MongodbUsername")
+	if err != nil {
+		fmt.Println(err)
+	}
+	dbPassword, err := config.GetSection("MongodbPassword")
+	if err != nil {
+		fmt.Println(err)
+	}
 	chain, err := blockchain.New(&blockchain.Config{
-		DB:           db,
+		DB: db,
+		MongodbConfiguration: struct {
+			MongodbConnectionString string
+			MongodbUsername         string
+			MongodbPasswrod         string
+		}{MongodbConnectionString: dbConnectionString.(string), MongodbUsername: dbUsername.(string), MongodbPasswrod: dbPassword.(string)},
 		ChainParams:  activeNetParams,
 		TimeSource:   blockchain.NewMedianTime(),
 		IndexManager: indexManager,

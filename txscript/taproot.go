@@ -325,7 +325,7 @@ func TweakTaprootPrivKey(privKey btcec.PrivateKey,
 	// operations are already normalized mod the curve order.
 	privTweak := privKeyScalar.Add(&tweakScalar)
 
-	return btcec.PrivKeyFromScalar(privTweak)
+	return &btcec.PrivateKey{Key: *privTweak}
 }
 
 // VerifyTaprootLeafCommitment attempts to verify a taproot commitment of the
