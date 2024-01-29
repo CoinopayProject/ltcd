@@ -1,3 +1,3 @@
 package shared
 
-const DatabaseName = "Coinopay_Demo"
+const DatabaseName = "Coinopay"

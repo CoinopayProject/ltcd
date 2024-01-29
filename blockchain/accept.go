@@ -13,6 +13,7 @@ import (
 	"github.com/ltcsuite/ltcd/repository"
 	"github.com/ltcsuite/ltcd/shared"
 	"github.com/ltcsuite/ltcd/txscript"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"strconv"
 	"time"
@@ -79,66 +80,72 @@ func (b *BlockChain) maybeAcceptBlock(block *ltcutil.Block, flags BehaviorFlags)
 
 	br := repository.NewRepository[*blockchainBlock.BlockchainBlock](b.dbClient, shared.DatabaseName)
 	tr := repository.NewRepository[*blockchainTransaction.BlockchainTransaction](b.dbClient, shared.DatabaseName)
-	databaseBlock := &blockchainBlock.BlockchainBlock{
-		Id: primitive.NewObjectID(),
-		DatabaseObject: repository.DatabaseObject{
-			UpdatedAt: time.Now().UTC(),
-			CreatedAt: time.Now().UTC(),
-			IsActive:  true,
-		},
-		Version:           blockHeader.Version,
-		Hash:              blockHeader.BlockHash().String(),
-		PreviousBlockHash: blockHeader.PrevBlock.String(),
-		MerkleRoot:        blockHeader.MerkleRoot.String(),
-		Timestamp:         blockHeader.Timestamp,
-		Bits:              blockHeader.Bits,
-		Nonce:             blockHeader.Nonce,
-		Height:            uint32(blockHeight),
-		Coin:              shared.Litecoin_Coin_Name,
-	}
-	insertedBlock, err := br.Create(databaseBlock, repository.BlockCollectionName)
+	dbObj, err := br.Get(bson.D{{"height", blockHeight}}, nil, repository.BlockCollectionName)
 	if err != nil {
 		fmt.Println(err)
 	}
-	databaseBlock = *insertedBlock
-	for _, transaction := range block.Transactions() {
-		for _, out := range transaction.MsgTx().TxOut {
-			script, err := hex.DecodeString(fmt.Sprintf("%x", out.PkScript))
-			if err != nil {
-				fmt.Println(err)
-			}
+	if dbObj == nil {
+		databaseBlock := &blockchainBlock.BlockchainBlock{
+			Id: primitive.NewObjectID(),
+			DatabaseObject: repository.DatabaseObject{
+				UpdatedAt: time.Now().UTC(),
+				CreatedAt: time.Now().UTC(),
+				IsActive:  true,
+			},
+			Version:           blockHeader.Version,
+			Hash:              blockHeader.BlockHash().String(),
+			PreviousBlockHash: blockHeader.PrevBlock.String(),
+			MerkleRoot:        blockHeader.MerkleRoot.String(),
+			Timestamp:         blockHeader.Timestamp,
+			Bits:              blockHeader.Bits,
+			Nonce:             blockHeader.Nonce,
+			Height:            uint32(blockHeight),
+			Coin:              shared.Litecoin_Coin_Name,
+		}
+		insertedBlock, err := br.Create(databaseBlock, repository.BlockCollectionName)
+		if err != nil {
+			fmt.Println(err)
+		}
+		databaseBlock = *insertedBlock
+		for _, transaction := range block.Transactions() {
+			for _, out := range transaction.MsgTx().TxOut {
+				script, err := hex.DecodeString(fmt.Sprintf("%x", out.PkScript))
+				if err != nil {
+					fmt.Println(err)
+				}
 
-			// Extract and print details from the script.
-			scriptClass, addresses, reqSigs, err := txscript.ExtractPkScriptAddrs(
-				script, &chaincfg.MainNetParams)
-			bitcoinAddresses := []string{}
-			for _, address := range addresses {
-				bitcoinAddresses = append(bitcoinAddresses, address.String())
-			}
-			stringAmount := strconv.FormatInt(out.Value, 10)
-			transactionAmount, err := primitive.ParseDecimal128(stringAmount)
-			if err != nil {
+				// Extract and print details from the script.
+				scriptClass, addresses, reqSigs, err := txscript.ExtractPkScriptAddrs(
+					script, &chaincfg.MainNetParams)
+				bitcoinAddresses := []string{}
+				for _, address := range addresses {
+					bitcoinAddresses = append(bitcoinAddresses, address.String())
+				}
+				stringAmount := strconv.FormatInt(out.Value, 10)
+				transactionAmount, err := primitive.ParseDecimal128(stringAmount)
+				if err != nil {
 
+				}
+				databaseTransaction := &blockchainTransaction.BlockchainTransaction{
+					Id: primitive.NewObjectID(),
+					DatabaseObject: repository.DatabaseObject{
+						UpdatedAt: time.Now().UTC(),
+						CreatedAt: time.Now().UTC(),
+						IsActive:  true,
+					},
+					Amount:                 transactionAmount,
+					ScriptClass:            scriptClass.String(),
+					BlockHash:              blockHeader.BlockHash().String(),
+					Addresses:              bitcoinAddresses,
+					RequiredSignatureCount: reqSigs,
+					Coin:                   shared.Litecoin_Coin_Name,
+				}
+				insertedTransaction, err := tr.Create(databaseTransaction, repository.TransactionCollectionName)
+				if err != nil {
+					fmt.Println(err)
+				}
+				databaseTransaction = *insertedTransaction
 			}
-			databaseTransaction := &blockchainTransaction.BlockchainTransaction{
-				Id: primitive.NewObjectID(),
-				DatabaseObject: repository.DatabaseObject{
-					UpdatedAt: time.Now().UTC(),
-					CreatedAt: time.Now().UTC(),
-					IsActive:  true,
-				},
-				Amount:                 transactionAmount,
-				ScriptClass:            scriptClass.String(),
-				BlockHash:              blockHeader.BlockHash().String(),
-				Addresses:              bitcoinAddresses,
-				RequiredSignatureCount: reqSigs,
-				Coin:                   shared.Litecoin_Coin_Name,
-			}
-			insertedTransaction, err := tr.Create(databaseTransaction, repository.TransactionCollectionName)
-			if err != nil {
-				fmt.Println(err)
-			}
-			databaseTransaction = *insertedTransaction
 		}
 	}
 	b.index.AddNode(newNode)
