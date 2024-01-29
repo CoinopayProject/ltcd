@@ -15,6 +15,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
@@ -23,6 +26,7 @@ import (
 )
 
 const (
+	blockFileExtension = ".fdb"
 	// The Bitcoin protocol encodes block height as int32, so max number of
 	// blocks is 2^31.  Max block size per the protocol is 32MiB per block.
 	// So the theoretical max at the time this comment was written is 64PiB
@@ -240,6 +244,48 @@ func (s *blockStore) openWriteFile(fileNum uint32) (filer, error) {
 	}
 
 	return file, nil
+}
+
+// scanBlockFiles searches the database directory for all flat block files to
+// find the first file, last file, and the end of the most recent file.  The
+// position at the last file is considered the current write cursor which is
+// also stored in the metadata.  Thus, it is used to detect unexpected shutdowns
+// in the middle of writes so the block files can be reconciled.
+func NscanBlockFiles(dbPath string) (int, int, uint32, error) {
+	firstFile, lastFile, lastFileLen, err := int(-1), int(-1), uint32(0), error(nil)
+
+	files, err := filepath.Glob(filepath.Join(dbPath, "*"+blockFileExtension))
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	sort.Strings(files)
+
+	// Return early if there's no block files.
+	if len(files) == 0 {
+		return firstFile, lastFile, lastFileLen, nil
+	}
+
+	// Grab the first and last file's number.
+	firstFile, err = strconv.Atoi(strings.TrimSuffix(filepath.Base(files[0]), blockFileExtension))
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("scanBlockFiles error: %v", err)
+	}
+	lastFile, err = strconv.Atoi(strings.TrimSuffix(filepath.Base(files[len(files)-1]), blockFileExtension))
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("scanBlockFiles error: %v", err)
+	}
+
+	// Get the last file's length.
+	filePath := blockFilePath(dbPath, uint32(lastFile))
+	st, err := os.Stat(filePath)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	lastFileLen = uint32(st.Size())
+
+	log.Tracef("Scan found latest block file #%d with length %d", lastFile, lastFileLen)
+
+	return firstFile, lastFile, lastFileLen, err
 }
 
 // openFile returns a read-only file handle for the passed flat file number.
@@ -622,8 +668,8 @@ func (s *blockStore) syncBlocks() error {
 // were partially written.
 //
 // There are effectively two scenarios to consider here:
-//   1) Transient write failures from which recovery is possible
-//   2) More permanent failures such as hard disk death and/or removal
+//  1. Transient write failures from which recovery is possible
+//  2. More permanent failures such as hard disk death and/or removal
 //
 // In either case, the write cursor will be repositioned to the old block file
 // offset regardless of any other errors that occur while attempting to undo

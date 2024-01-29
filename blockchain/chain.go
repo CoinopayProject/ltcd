@@ -106,7 +106,7 @@ type BlockChain struct {
 	sigCache            *txscript.SigCache
 	indexManager        IndexManager
 	hashCache           *txscript.HashCache
-
+	utxoCache           *utxoCache
 	// The following fields are calculated based upon the provided chain
 	// parameters.  They are also set when the instance is created and
 	// can't be changed afterwards, so there is no need to protect them with
@@ -185,6 +185,7 @@ type BlockChain struct {
 	// certain blockchain events.
 	notificationsLock sync.RWMutex
 	notifications     []NotificationCallback
+	pruneTarget       uint64
 }
 
 // HaveBlock returns whether or not the chain instance has the block represented
@@ -603,6 +604,43 @@ func (b *BlockChain) connectBlock(node *blockNode, block *ltcutil.Block,
 
 	// Atomically insert info into the database.
 	err = b.db.Update(func(dbTx database.Tx) error {
+		// If the pruneTarget isn't 0, we should attempt to delete older blocks
+		// from the database.
+		if b.pruneTarget != 0 {
+			// When the total block size is under the prune target, prune blocks is
+			// a no-op and the deleted hashes are nil.
+			deletedHashes, err := dbTx.PruneBlocks(b.pruneTarget)
+			if err != nil {
+				return err
+			}
+
+			// Only attempt to delete if we have any deleted blocks.
+			if len(deletedHashes) != 0 {
+				// Delete the spend journals of the pruned blocks.
+				err = dbPruneSpendJournalEntry(dbTx, deletedHashes)
+				if err != nil {
+					return err
+				}
+
+				// We may need to flush if the prune will delete blocks that
+				// are past our last flush block.
+				//
+				// NOTE: the database will never be inconsistent here as the
+				// actual blocks are not deleted until the db.Update returns.
+				needsFlush, err := b.flushNeededAfterPrune(deletedHashes)
+				if err != nil {
+					return err
+				}
+				if needsFlush {
+					// Since the deleted hashes are past our last
+					// flush block, flush the utxo cache now.
+					err = b.utxoCache.flush(dbTx, FlushRequired, state)
+					if err != nil {
+						return err
+					}
+				}
+			}
+		}
 		// Update best block state.
 		err := dbPutBestState(dbTx, state, node.workSum)
 		if err != nil {

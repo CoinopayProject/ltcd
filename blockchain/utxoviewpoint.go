@@ -28,6 +28,7 @@ const (
 	// tfModified indicates that a txout has been modified since it was
 	// loaded.
 	tfModified
+	tfFresh
 )
 
 // UtxoEntry houses details about an individual transaction output in a utxo
@@ -85,6 +86,22 @@ func (entry *UtxoEntry) Spend() {
 
 	// Mark the output as spent and modified.
 	entry.packedFlags |= tfSpent | tfModified
+}
+
+// isFresh returns whether or not it's certain the output has never previously
+// been stored in the database.
+func (entry *UtxoEntry) isFresh() bool {
+	return entry.packedFlags&tfFresh == tfFresh
+}
+
+// memoryUsage returns the memory usage in bytes of for the utxo entry.
+// It returns 0 for a nil entry.
+func (entry *UtxoEntry) memoryUsage() uint64 {
+	if entry == nil {
+		return 0
+	}
+
+	return baseEntrySize + uint64(cap(entry.pkScript))
 }
 
 // Amount returns the amount of the output.

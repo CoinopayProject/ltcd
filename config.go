@@ -66,6 +66,7 @@ const (
 	sampleConfigFilename         = "sample-ltcd.conf"
 	defaultTxIndex               = false
 	defaultAddrIndex             = false
+	pruneMinSize                 = 1536
 )
 
 var (
@@ -180,6 +181,7 @@ type config struct {
 	miningAddrs          []ltcutil.Address
 	minRelayTxFee        ltcutil.Amount
 	whitelists           []*net.IPNet
+	Prune                uint64 `long:"prune" description:"Prune already validated blocks from the database. Must specify a target size in MiB (minimum value of 1536, default value of 0 will disable pruning)"`
 }
 
 // serviceOptions defines the configuration options for the daemon as a service on
@@ -1006,6 +1008,30 @@ func loadConfig() (*config, []string, error) {
 	// --noonion and --onion do not mix.
 	if cfg.NoOnion && cfg.OnionProxy != "" {
 		err := fmt.Errorf("%s: the --noonion and --onion options may "+
+			"not be activated at the same time", funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, nil, err
+	}
+
+	if cfg.Prune != 0 && cfg.Prune < pruneMinSize {
+		err := fmt.Errorf("%s: the minimum value for --prune is %d. Got %d",
+			funcName, pruneMinSize, cfg.Prune)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, nil, err
+	}
+
+	if cfg.Prune != 0 && cfg.TxIndex {
+		err := fmt.Errorf("%s: the --prune and --txindex options may "+
+			"not be activated at the same time", funcName)
+		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, usageMessage)
+		return nil, nil, err
+	}
+
+	if cfg.Prune != 0 && cfg.AddrIndex {
+		err := fmt.Errorf("%s: the --prune and --addrindex options may "+
 			"not be activated at the same time", funcName)
 		fmt.Fprintln(os.Stderr, err)
 		fmt.Fprintln(os.Stderr, usageMessage)

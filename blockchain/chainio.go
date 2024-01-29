@@ -70,6 +70,10 @@ var (
 	// byteOrder is the preferred byte order used for serializing numeric
 	// fields for storage in the database.
 	byteOrder = binary.LittleEndian
+
+	// utxoStateConsistencyKeyName is the name of the db key used to store the
+	// consistency status of the utxo state.
+	utxoStateConsistencyKeyName = []byte("utxostateconsistency")
 )
 
 // errNotInMainChain signifies that a block hash or height that is not in the
@@ -724,6 +728,49 @@ func dbFetchUtxoEntryByHash(dbTx database.Tx, hash *chainhash.Hash) (*UtxoEntry,
 	return deserializeUtxoEntry(cursor.Value())
 }
 
+// dbDeleteUtxoEntry uses an existing database transaction to delete the utxo
+// entry from the database.
+func dbDeleteUtxoEntry(utxoBucket database.Bucket, outpoint wire.OutPoint) error {
+	key := outpointKey(outpoint)
+	err := utxoBucket.Delete(*key)
+	recycleOutpointKey(key)
+	return err
+}
+
+// dbPutUtxoEntry uses an existing database transaction to update the utxo entry
+// in the database.
+func dbPutUtxoEntry(utxoBucket database.Bucket, outpoint wire.OutPoint,
+	entry *UtxoEntry) error {
+
+	if entry == nil || entry.IsSpent() {
+		return AssertError("trying to store nil or spent entry")
+	}
+
+	// Serialize and store the utxo entry.
+	serialized, err := serializeUtxoEntry(entry)
+	if err != nil {
+		return err
+	}
+	key := outpointKey(outpoint)
+	err = utxoBucket.Put(*key, serialized)
+	if err != nil {
+		return err
+	}
+
+	// NOTE: The key is intentionally not recycled here since the
+	// database interface contract prohibits modifications.  It will
+	// be garbage collected normally when the database is done with
+	// it.
+	return nil
+}
+
+// dbPutUtxoStateConsistency uses an existing database transaction to
+// update the utxo state consistency status with the given parameters.
+func dbPutUtxoStateConsistency(dbTx database.Tx, hash *chainhash.Hash) error {
+	// Store the utxo state consistency status into the database.
+	return dbTx.Metadata().Put(utxoStateConsistencyKeyName, hash[:])
+}
+
 // dbFetchUtxoEntry uses an existing database transaction to fetch the specified
 // transaction output from the utxo set.
 //
@@ -764,6 +811,57 @@ func dbFetchUtxoEntry(dbTx database.Tx, outpoint wire.OutPoint) (*UtxoEntry, err
 	}
 
 	return entry, nil
+}
+
+// dbFetchUtxoEntry uses an existing database transaction to fetch the specified
+// transaction output from the utxo set.
+//
+// When there is no entry for the provided output, nil will be returned for both
+// the entry and the error.
+func dbFetchUtxoEntry(dbTx database.Tx, utxoBucket database.Bucket,
+	outpoint wire.OutPoint) (*UtxoEntry, error) {
+
+	// Fetch the unspent transaction output information for the passed
+	// transaction output.  Return now when there is no entry.
+	key := outpointKey(outpoint)
+	serializedUtxo := utxoBucket.Get(*key)
+	recycleOutpointKey(key)
+	if serializedUtxo == nil {
+		return nil, nil
+	}
+
+	// A non-nil zero-length entry means there is an entry in the database
+	// for a spent transaction output which should never be the case.
+	if len(serializedUtxo) == 0 {
+		return nil, AssertError(fmt.Sprintf("database contains entry "+
+			"for spent tx output %v", outpoint))
+	}
+
+	// Deserialize the utxo entry and return it.
+	entry, err := deserializeUtxoEntry(serializedUtxo)
+	if err != nil {
+		// Ensure any deserialization errors are returned as database
+		// corruption errors.
+		if isDeserializeErr(err) {
+			return nil, database.Error{
+				ErrorCode: database.ErrCorruption,
+				Description: fmt.Sprintf("corrupt utxo entry "+
+					"for %v: %v", outpoint, err),
+			}
+		}
+
+		return nil, err
+	}
+
+	return entry, nil
+}
+
+// dbFetchUtxoStateConsistency uses an existing database transaction to retrieve
+// the utxo state consistency status from the database.  The code is 0 when
+// nothing was found.
+func dbFetchUtxoStateConsistency(dbTx database.Tx) []byte {
+	// Fetch the serialized data from the database.
+	return dbTx.Metadata().Get(utxoStateConsistencyKeyName)
 }
 
 // dbPutUtxoView uses an existing database transaction to update the utxo set
@@ -896,6 +994,21 @@ func dbFetchHashByHeight(dbTx database.Tx, height int32) (*chainhash.Hash, error
 	var hash chainhash.Hash
 	copy(hash[:], hashBytes)
 	return &hash, nil
+}
+
+// dbPruneSpendJournalEntry uses an existing database transaction to remove all
+// the spend journal entries for the pruned blocks.
+func dbPruneSpendJournalEntry(dbTx database.Tx, blockHashes []chainhash.Hash) error {
+	spendBucket := dbTx.Metadata().Bucket(spendJournalBucketName)
+
+	for _, blockHash := range blockHashes {
+		err := spendBucket.Delete(blockHash[:])
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // -----------------------------------------------------------------------------
