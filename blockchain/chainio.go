@@ -818,7 +818,7 @@ func dbFetchUtxoEntry(dbTx database.Tx, outpoint wire.OutPoint) (*UtxoEntry, err
 //
 // When there is no entry for the provided output, nil will be returned for both
 // the entry and the error.
-func dbFetchUtxoEntry(dbTx database.Tx, utxoBucket database.Bucket,
+func NdbFetchUtxoEntry(dbTx database.Tx, utxoBucket database.Bucket,
 	outpoint wire.OutPoint) (*UtxoEntry, error) {
 
 	// Fetch the unspent transaction output information for the passed

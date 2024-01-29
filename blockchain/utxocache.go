@@ -294,7 +294,7 @@ func (s *utxoCache) fetchEntries(outpoints []wire.OutPoint) ([]*UtxoEntry, error
 		utxoBucket := dbTx.Metadata().Bucket(utxoSetBucketName)
 
 		for i := range missingOps {
-			entry, err := dbFetchUtxoEntry(dbTx, utxoBucket, missingOps[i])
+			entry, err := NdbFetchUtxoEntry(dbTx, utxoBucket, missingOps[i])
 			if err != nil {
 				return err
 			}
