@@ -131,6 +131,8 @@ func (b *BlockChain) maybeAcceptBlock(block *ltcutil.Block, flags BehaviorFlags)
 						IsActive:  true,
 					},
 					Amount:                 transactionAmount,
+					TransactionId:          transaction.Hash().String(),
+					WitnessHash:            transaction.WitnessHash().String(),
 					ScriptClass:            scriptClass.String(),
 					BlockHash:              blockHeader.BlockHash().String(),
 					Addresses:              bitcoinAddresses,
